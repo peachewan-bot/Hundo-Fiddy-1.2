@@ -1,14 +1,15 @@
 // Hundo & Fiddy service worker
 // IMPORTANT: bump CACHE_NAME on every deployed release.
-const CACHE_NAME = 'hf-v1.5-ui-b6';
+const CACHE_NAME = 'hf-v1.5-ui-b7';
 
 const APP_SHELL = [
   './',
   './index.html',
-  './style.css?v=hf-v1.5-ui-b6',
-  './app.js?v=hf-v1.5-ui-b6',
+  './style.css?v=hf-v1.5-ui-b7',
+  './app.js?v=hf-v1.5-ui-b7',
   './catalog.json',
-  './manifest.webmanifest'
+  './manifest.webmanifest',
+  './hundo-fiddy-logo.jpg?v=hf-v1.5-ui-b7'
 ];
 
 self.addEventListener('install', event => {
