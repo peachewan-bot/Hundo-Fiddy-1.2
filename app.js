@@ -21,7 +21,17 @@ const esc=s=>String(s||"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&
 function ico(name){let paths={gear:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .35 1.88l.05.05-2.87 2.87-.05-.05A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1.4 1.6H10.4A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.88.35l-.05.05-2.87-2.87.05-.05A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.6-1.4v-3.2A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.35-1.88l-.05-.05L7.07 4.2l.05.05A1.7 1.7 0 0 0 9 4.6 1.7 1.7 0 0 0 10.4 3h3.2A1.7 1.7 0 0 0 15 4.6a1.7 1.7 0 0 0 1.88-.35l.05-.05 2.87 2.87-.05.05A1.7 1.7 0 0 0 19.4 9a1.7 1.7 0 0 0 1.6 1.4v3.2a1.7 1.7 0 0 0-1.6 1.4Z"/>',back:'<path d="m15 18-6-6 6-6"/>',backup:'<path d="M7 18H5a3 3 0 1 1 .6-5.94A6 6 0 0 1 17 10a4 4 0 1 1 1 8H7Z"/><path d="M12 9v8m0 0-3-3m3 3 3-3"/>',restore:'<path d="M4 4v6h6M20 20v-6h-6"/><path d="M5.6 15A8 8 0 0 0 19 17M18.4 9A8 8 0 0 0 5 7"/>',info:'<circle cx="12" cy="12" r="9"/><path d="M12 10v7M12 7h.01"/>',movie:'<rect x="4.5" y="10.5" width="15" height="9.5" rx="1.5"/><path d="M4.4 10.5 3.5 7.1 19.4 3.3l.9 3.5-15.9 3.7Z"/><path d="m6.5 6.4 2.7 2.4M11.1 5.3l2.7 2.4M15.7 4.2l2.6 2.3"/><path d="M8 14.4h8M8 17.2h5.4"/>',tv:'<rect x="3" y="7" width="18" height="13" rx="2"/><path d="m8 3 4 4 4-4"/>',search:'<circle cx="11" cy="11" r="6"/><path d="m16 16 4 4"/>'};return `<svg class="svg-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name]||""}</svg>`}
 function appHeader(left=""){return `<header class="app-header"><div class="header-side">${left}</div><div class="header-brand">Hundo &amp; Fiddy</div><button class="icon-btn" aria-label="Settings" onclick="settings()">${ico("gear")}</button></header>`}
 function appFooter(){return `<footer class="app-footer"><button onclick="backup()" title="Back up all Movie Hundo and TV Fiddy data" aria-label="Backup everything">${ico("backup")}<span>Backup</span></button><button onclick="pickRestore()">${ico("restore")}<span>Restore</span></button><button onclick="about()">${ico("info")}<span>About</span></button></footer>`}
-function logoMark(){return `<div class="logo-mark" aria-label="Hundo and Fiddy"><svg class="logo-art" viewBox="0 0 200 200" role="img" aria-label="Hundo and Fiddy"><g class="logo-ring-lines" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round"><path d="M34 72C48 42 73 27 100 27C127 27 152 42 166 72"/><path d="M31 96C31 141 61 176 100 176C139 176 169 141 169 96"/></g><g class="logo-svg-words" text-anchor="middle"><text x="100" y="94" class="logo-svg-main">HUNDO</text><text x="100" y="116" class="logo-svg-amp">&amp;</text><text x="100" y="143" class="logo-svg-main">FIDDY</text></g></svg></div>`}
+function logoMark(){
+  return `
+    <div class="logo-mark image-logo" aria-label="Hundo and Fiddy">
+      <img
+        src="hundo-fiddy-logo.jpg?v=hf-v1.5-ui-b7"
+        alt="Hundo & Fiddy"
+        class="welcome-logo-image"
+      >
+    </div>
+  `;
+}
 function finishWelcome(){if(!TEST_MODE)localStorage.setItem(WELCOME_KEY,"1");view="home";render()}
 function dismissPostOnboardingTip(){
   tipDismissed=true;
