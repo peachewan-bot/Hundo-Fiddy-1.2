@@ -1,69 +1,2158 @@
-// Hundo & Fiddy service worker
-// IMPORTANT: bump CACHE_NAME on every deployed release.
-const CACHE_NAME = 'hf-v1.5-ui-b2';
+// Address of the small backend that holds the TMDB secret and does online search on our behalf.
+// Update this one line if the backend is ever moved.
+const PROXY_URL="https://hundo-fiddy-proxy.peachewan.workers.dev";
 
-const APP_SHELL = [
-  './',
-  './index.html',
-  './style.css',
-  './app.js',
-  './catalog.json',
-  './manifest.webmanifest'
+let C={movies:[],tv:[]};
+
+const DATA_KEY="hf-v1.2";
+const LEGACY_KEY="hf-v1";
+const WELCOME_KEY="hf-welcome-v1";
+
+const TEST_MODE=
+  new URLSearchParams(window.location.search).get("test")==="1";
+
+const storedRaw=
+  localStorage.getItem(DATA_KEY)||
+  localStorage.getItem(LEGACY_KEY)||
+  "";
+
+const hadStoredState=!!storedRaw;
+
+const DEFAULT=()=>({
+  schema:2,
+  tmdbKey:"",
+  custom:{
+    movies:[],
+    tv:[]
+  },
+  movie:{
+    phase:"setup",
+    a:{},
+    list:[],
+    round:0
+  },
+  tv:{
+    phase:"setup",
+    a:{},
+    list:[],
+    round:0
+  }
+});
+
+let S=(()=>{
+  try{
+    let x=storedRaw?JSON.parse(storedRaw):null;
+
+    return x
+      ?{
+          ...DEFAULT(),
+          ...x,
+          custom:x.custom||{movies:[],tv:[]},
+          tmdbKey:x.tmdbKey||""
+        }
+      :DEFAULT();
+
+  }catch(e){
+    return DEFAULT();
+  }
+})();
+
+/*
+  TEST MODE
+  ---------
+  Open the app with:
+
+  ?test=1
+
+  Example:
+  https://whatdoyouwanttoeat-youpick.com/?test=1
+
+  Test mode:
+  - Always starts at Welcome
+  - Starts Movie and TV in fresh Taste Setup mode
+  - Does NOT save changes to real localStorage
+  - Does NOT change the real welcome-completed flag
+*/
+if(TEST_MODE){
+  S=JSON.parse(JSON.stringify(S));
+
+  S.movie={
+    phase:"setup",
+    a:{},
+    list:[],
+    round:0
+  };
+
+  S.tv={
+    phase:"setup",
+    a:{},
+    list:[],
+    round:0
+  };
+}
+
+let view=
+  TEST_MODE
+    ?"welcome"
+    :(
+        localStorage.getItem(WELCOME_KEY)==="1"||
+        hadStoredState
+      )
+      ?"home"
+      :"welcome";
+
+let tab="list";
+let expanded={};
+let searchTimer=0;
+let searchSeq=0;
+let pendingRestore=null;
+
+const save=()=>{
+  if(!TEST_MODE){
+    localStorage.setItem(
+      DATA_KEY,
+      JSON.stringify(S)
+    );
+  }
+};
+
+const cfg=k=>
+  k==="movie"
+    ?{
+        name:"Movie Hundo",
+        size:100,
+        key:"movies",
+        noun:"films",
+        tmdb:"movie"
+      }
+    :{
+        name:"TV Fiddy",
+        size:50,
+        key:"tv",
+        noun:"series",
+        tmdb:"tv"
+      };
+
+const st=k=>S[k];
+
+const all=k=>[
+  ...(C[cfg(k).key]||[]),
+  ...(S.custom[cfg(k).key]||[])
 ];
 
-self.addEventListener('install', event => {
-  self.skipWaiting();
-
-  event.waitUntil(
-    caches.open(CACHE_NAME)
-      .then(cache => cache.addAll(APP_SHELL))
-  );
-});
-
-self.addEventListener('activate', event => {
-  event.waitUntil(
-    caches.keys()
-      .then(keys => Promise.all(
-        keys
-          .filter(key => key.startsWith('hf-') && key !== CACHE_NAME)
-          .map(key => caches.delete(key))
-      ))
-      .then(() => self.clients.claim())
-  );
-});
-
-self.addEventListener('fetch', event => {
-  const request = event.request;
-
-  if (request.method !== 'GET') return;
-
-  const url = new URL(request.url);
-  if (url.origin !== self.location.origin) return;
-
-  event.respondWith((async () => {
-    const cache = await caches.open(CACHE_NAME);
-
-    try {
-      const response = await fetch(request, { cache: 'no-store' });
-
-      if (response && response.ok) {
-        await cache.put(request, response.clone());
-      }
-
-      return response;
-    } catch (error) {
-      const cached = await cache.match(request);
-
-      if (cached) return cached;
-
-      if (request.mode === 'navigate') {
-        return (
-          await cache.match('./index.html') ||
-          await cache.match('./')
-        );
-      }
-
-      throw error;
+const A=(k,id)=>
+  st(k).a[id]||
+  (
+    st(k).a[id]={
+      status:"",
+      rating:0,
+      comment:"",
+      source:""
     }
-  })());
-});
+  );
+
+const esc=s=>
+  String(s||"").replace(
+    /[&<>"']/g,
+    m=>({
+      "&":"&amp;",
+      "<":"&lt;",
+      ">":"&gt;",
+      '"':"&quot;",
+      "'":"&#39;"
+    }[m])
+  );
+
+function ico(name){
+
+  let paths={
+
+    gear:`
+      <circle cx="12" cy="12" r="3"/>
+      <path d="M19.4 15a1.7 1.7 0 0 0 .35 1.88l.05.05-2.87 2.87-.05-.05A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1.4 1.6H10.4A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.88.35l-.05.05-2.87-2.87.05-.05A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.6-1.4v-3.2A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.35-1.88l-.05-.05L7.07 4.2l.05.05A1.7 1.7 0 0 0 9 4.6 1.7 1.7 0 0 0 10.4 3h3.2A1.7 1.7 0 0 0 15 4.6a1.7 1.7 0 0 0 1.88-.35l.05-.05 2.87 2.87-.05.05A1.7 1.7 0 0 0 19.4 9a1.7 1.7 0 0 0 1.6 1.4v3.2a1.7 1.7 0 0 0-1.6 1.4Z"/>
+    `,
+
+    back:`
+      <path d="m15 18-6-6 6-6"/>
+    `,
+
+    backup:`
+      <path d="M7 18H5a3 3 0 1 1 .6-5.94A6 6 0 0 1 17 10a4 4 0 1 1 1 8H7Z"/>
+      <path d="M12 9v8m0 0-3-3m3 3 3-3"/>
+    `,
+
+    restore:`
+      <path d="M4 4v6h6M20 20v-6h-6"/>
+      <path d="M5.6 15A8 8 0 0 0 19 17M18.4 9A8 8 0 0 0 5 7"/>
+    `,
+
+    info:`
+      <circle cx="12" cy="12" r="9"/>
+      <path d="M12 10v7M12 7h.01"/>
+    `,
+
+    movie:`
+      <path d="M4 9h16v11H4z"/>
+      <path d="m4 9 15-4 1 4-15 4z"/>
+      <path d="m7 8 3 3m2-5 3 3m2-5 3 3"/>
+    `,
+
+    tv:`
+      <rect x="3" y="7" width="18" height="13" rx="2"/>
+      <path d="m8 3 4 4 4-4"/>
+    `,
+
+    search:`
+      <circle cx="11" cy="11" r="6"/>
+      <path d="m16 16 4 4"/>
+    `
+  };
+
+  return `
+    <svg
+      class="svg-icon"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.7"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      aria-hidden="true"
+    >
+      ${paths[name]||""}
+    </svg>
+  `;
+}
+
+function appHeader(left=""){
+
+  return `
+    <header class="app-header">
+
+      <div class="header-side">
+        ${left}
+      </div>
+
+      <div class="header-brand">
+        Hundo &amp; Fiddy
+      </div>
+
+      <button
+        class="icon-btn"
+        aria-label="Settings"
+        onclick="settings()"
+      >
+        ${ico("gear")}
+      </button>
+
+    </header>
+  `;
+}
+
+function appFooter(){
+
+  return `
+    <footer class="app-footer">
+
+      <button onclick="backup()">
+        ${ico("backup")}
+        <span>Backup</span>
+      </button>
+
+      <button onclick="pickRestore()">
+        ${ico("restore")}
+        <span>Restore</span>
+      </button>
+
+      <button onclick="about()">
+        ${ico("info")}
+        <span>About</span>
+      </button>
+
+    </footer>
+  `;
+}
+
+function logoMark(){
+
+  return `
+    <div
+      class="logo-mark"
+      aria-label="Hundo and Fiddy"
+    >
+
+      <svg
+        class="logo-ring"
+        viewBox="0 0 200 200"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="4"
+        stroke-linecap="round"
+        aria-hidden="true"
+      >
+        <path d="M39 62A76 76 0 0 1 161 62"/>
+        <path d="M171 94A76 76 0 0 1 119 171"/>
+        <path d="M81 171A76 76 0 0 1 29 94"/>
+      </svg>
+
+      <div class="logo-words">
+        <strong>HUNDO</strong>
+        <b>&amp;</b>
+        <strong>FIDDY</strong>
+      </div>
+
+    </div>
+  `;
+}
+
+function finishWelcome(){
+
+  if(!TEST_MODE){
+    localStorage.setItem(
+      WELCOME_KEY,
+      "1"
+    );
+  }
+
+  view="home";
+  render();
+}
+
+function pickRestore(){
+
+  let i=document.createElement("input");
+
+  i.type="file";
+  i.accept=".json,application/json";
+  i.hidden=true;
+
+  i.onchange=()=>{
+
+    restore(i);
+
+    setTimeout(
+      ()=>i.remove(),
+      0
+    );
+  };
+
+  document.body.appendChild(i);
+
+  i.click();
+}
+
+function about(){
+
+  document.body.insertAdjacentHTML(
+    "beforeend",
+    `
+      <div
+        class="overlay"
+        id="about"
+      >
+
+        <div class="sheet">
+
+          <div class="modal-icon">
+            ${ico("info")}
+          </div>
+
+          <h2>
+            About Hundo &amp; Fiddy
+          </h2>
+
+          <p class="meta">
+            Find your next movie or show —
+            no more scrolling.
+          </p>
+
+          <p class="meta">
+            Rate what you know,
+            add comments when you want,
+            and Hundo &amp; Fiddy builds
+            a personalised list around your taste.
+          </p>
+
+          <button
+            class="primary-outline"
+            onclick="document.getElementById('about').remove()"
+          >
+            Close
+          </button>
+
+        </div>
+
+      </div>
+    `
+  );
+}
+
+fetch("catalog.json")
+  .then(r=>r.json())
+  .then(x=>{
+    C=x;
+    render();
+  })
+  .catch(()=>{
+    render();
+  });
+
+function go(k){
+
+  view=k;
+  tab="list";
+
+  render();
+}
+
+function status(k,id,v){
+
+  let a=A(k,id);
+
+  a.status=v;
+
+  if(v!=="seen"){
+    a.rating=0;
+  }
+
+  save();
+  render();
+}
+
+function rate(k,id,n){
+
+  let a=A(k,id);
+
+  a.status="seen";
+  a.rating=n;
+
+  save();
+  render();
+}
+
+function toggleComment(id){
+
+  expanded[id]=!expanded[id];
+
+  render();
+}
+
+function comment(k,id,v){
+
+  A(k,id).comment=v;
+
+  save();
+}
+
+function sentiment(s){
+
+  s=(s||"").toLowerCase();
+
+  let n=0;
+
+  [
+    "love",
+    "loved",
+    "great",
+    "amazing",
+    "brilliant",
+    "best",
+    "excellent",
+    "funny",
+    "tense",
+    "clever"
+  ].forEach(
+    w=>s.includes(w)&&(n+=.6)
+  );
+
+  [
+    "shit",
+    "rubbish",
+    "terrible",
+    "awful",
+    "boring",
+    "dragged",
+    "too long",
+    "went downhill",
+    "bad after",
+    "gave up"
+  ].forEach(
+    w=>s.includes(w)&&(n-=.7)
+  );
+
+  return n;
+}
+
+function scores(k){
+
+  let g={};
+
+  Object.entries(st(k).a)
+    .forEach(([id,a])=>{
+
+      let x=all(k)
+        .find(z=>z.id===id);
+
+      if(!x){
+        return;
+      }
+
+      let v=
+        a.status==="nope"
+          ?-2.5
+          :a.status==="seen"
+            ?(
+                ((a.rating||3)-3)*1.3+
+                sentiment(a.comment)*1.7
+              )
+            :0;
+
+      (x.genre||"Other")
+        .split(" / ")
+        .forEach(
+          q=>g[q]=(g[q]||0)+v
+        );
+    });
+
+  return g;
+}
+
+function generate(k,carry=[]){
+
+  let s=st(k);
+
+  let g=scores(k);
+
+  let keep=
+    new Set(carry);
+
+  let seen=
+    new Set(
+      Object.entries(s.a)
+        .filter(
+          ([_,a])=>a.status==="seen"
+        )
+        .map(
+          ([id])=>id
+        )
+    );
+
+  let pool=
+    all(k)
+      .filter(
+        x=>
+          !seen.has(x.id)&&
+          !keep.has(x.id)&&
+          A(k,x.id).status!=="nope"
+      );
+
+  pool.sort(
+    (x,y)=>
+      (y.genre||"")
+        .split(" / ")
+        .reduce(
+          (n,q)=>n+(g[q]||0),
+          0
+        )
+      -
+      (x.genre||"")
+        .split(" / ")
+        .reduce(
+          (n,q)=>n+(g[q]||0),
+          0
+        )
+  );
+
+  s.list=[
+    ...carry,
+    ...pool
+      .slice(
+        0,
+        cfg(k).size-carry.length
+      )
+      .map(
+        x=>x.id
+      )
+  ];
+
+  s.phase="list";
+
+  s.round++;
+
+  save();
+  render();
+}
+
+function regen(k){
+
+  if(st(k).phase==="setup"){
+    return generate(k);
+  }
+
+  let left=
+    st(k).list.filter(
+      id=>["","not"].includes(
+        A(k,id).status
+      )
+    );
+
+  if(!left.length){
+    return generate(k);
+  }
+
+  window.keepSet=
+    new Set();
+
+  document.body.insertAdjacentHTML(
+    "beforeend",
+    `
+      <div
+        class="overlay"
+        id="ov"
+      >
+
+        <div class="sheet">
+
+          <h2>
+            Before we refresh…
+          </h2>
+
+          <p>
+            ${left.length}
+            unwatched
+            ${cfg(k).noun}
+            remain.
+            Pick any you want carried forward.
+          </p>
+
+          ${left.map(id=>{
+
+            let x=
+              all(k)
+                .find(z=>z.id===id);
+
+            return x
+              ?`
+                <label class="carry">
+
+                  <input
+                    type="checkbox"
+                    onchange="
+                      this.checked
+                        ?keepSet.add('${id}')
+                        :keepSet.delete('${id}')
+                    "
+                  >
+
+                  <span>
+
+                    <b>
+                      ${esc(x.title)}
+                    </b>
+
+                    <div class="meta">
+                      ${esc(x.genre)}
+                    </div>
+
+                  </span>
+
+                </label>
+              `
+              :"";
+
+          }).join("")}
+
+          <div class="controls">
+
+            <button
+              class="ctrl"
+              onclick="ov.remove()"
+            >
+              Cancel
+            </button>
+
+            <button
+              class="ctrl on"
+              onclick="
+                let q=[...keepSet];
+                ov.remove();
+                generate('${k}',q)
+              "
+            >
+              Generate new list
+            </button>
+
+          </div>
+
+        </div>
+
+      </div>
+    `
+  );
+}
+
+function stars(k,x){
+
+  let a=A(k,x.id);
+
+  return a.status==="seen"
+    ?`
+      <div class="ratingline">
+
+        ${[1,2,3,4,5]
+          .map(
+            n=>`
+              <button
+                class="star ${a.rating>=n?"on":""}"
+                onclick="rate('${k}','${x.id}',${n})"
+              >
+                ★
+              </button>
+            `
+          )
+          .join("")}
+
+      </div>
+
+      <button
+        class="note"
+        onclick="toggleComment('${x.id}')"
+      >
+        ${a.comment
+          ?"Edit comment"
+          :"Add a comment"
+        }
+      </button>
+
+      ${expanded[x.id]
+        ?`
+          <div class="commentbox">
+
+            <textarea
+              class="notearea"
+              oninput="comment('${k}','${x.id}',this.value)"
+              placeholder="What worked? What didn't? Seasons, plot, tone, pacing…"
+            >${esc(a.comment)}</textarea>
+
+            <div class="saved">
+              Saved automatically
+            </div>
+
+          </div>
+        `
+        :""
+      }
+    `
+    :"";
+}
+
+function row(k,x,n){
+
+  let a=A(k,x.id);
+
+  return `
+    <div class="row">
+
+      <div class="num">
+        ${String(n).padStart(2,"0")}
+      </div>
+
+      <div>
+
+        <div class="title">
+
+          ${esc(x.title)}
+
+          ${x.year
+            ?`
+              <span class="year">
+                ${esc(x.year)}
+              </span>
+            `
+            :""
+          }
+
+        </div>
+
+        <div class="meta">
+
+          ${esc(x.genre||"Other")}
+
+          ${x.source==="tmdb"
+            ?" · online"
+            :""
+          }
+
+        </div>
+
+        <div class="controls">
+
+          <button
+            class="ctrl ${a.status==="seen"?"on":""}"
+            onclick="status('${k}','${x.id}','seen')"
+          >
+            Seen
+          </button>
+
+          <button
+            class="ctrl ${a.status==="not"?"on":""}"
+            onclick="status('${k}','${x.id}','not')"
+          >
+            Not seen
+          </button>
+
+          <button
+            class="ctrl nope ${a.status==="nope"?"on":""}"
+            onclick="status('${k}','${x.id}','nope')"
+          >
+            Not interested
+          </button>
+
+        </div>
+
+        ${stars(k,x)}
+
+      </div>
+
+    </div>
+  `;
+}
+
+function hist(k){
+
+  return all(k)
+    .filter(
+      x=>A(k,x.id).status==="seen"
+    );
+}
+
+function histrow(k,x){
+
+  let a=A(k,x.id);
+
+  let key=
+    "h"+x.id;
+
+  return `
+    <div class="hist">
+
+      <button
+        onclick="
+          expanded['${key}']=!expanded['${key}'];
+          render()
+        "
+      >
+
+        <b>
+          ${esc(x.title)}
+        </b>
+
+        <span style="float:right">
+
+          ${a.rating
+            ?"★".repeat(a.rating)
+            :"Seen"
+          }
+
+        </span>
+
+      </button>
+
+      ${expanded[key]
+        ?`
+          <div class="histbody">
+
+            <div class="meta">
+              ${esc(x.genre)}
+            </div>
+
+            ${stars(k,x)}
+
+            ${a.comment
+              ?`
+                <div class="historycomment">
+                  ${esc(a.comment)}
+                </div>
+              `
+              :""
+            }
+
+          </div>
+        `
+        :""
+      }
+
+    </div>
+  `;
+}
+
+function backupFilename(){
+
+  let d=new Date();
+
+  let p=
+    n=>String(n).padStart(2,"0");
+
+  let date=
+    `${p(d.getDate())}-${p(d.getMonth()+1)}-${d.getFullYear()}`;
+
+  let time=
+    `${p(d.getHours())}${p(d.getMinutes())}`;
+
+  return `
+hf-f${S.movie.round}-tv${S.tv.round}-${date}-${time}.json
+  `.trim();
+}
+
+function backup(){
+
+  let a=
+    document.createElement("a");
+
+  a.href=
+    URL.createObjectURL(
+      new Blob(
+        [
+          JSON.stringify(
+            S,
+            null,
+            2
+          )
+        ],
+        {
+          type:"application/json"
+        }
+      )
+    );
+
+  a.download=
+    backupFilename();
+
+  a.click();
+
+  toast(
+    "Backup created"
+  );
+}
+
+function toast(t){
+
+  document.body.insertAdjacentHTML(
+    "beforeend",
+    `
+      <div class="toast">
+        ${esc(t)}
+      </div>
+    `
+  );
+
+  setTimeout(
+    ()=>{
+      document
+        .querySelector(".toast")
+        ?.remove();
+    },
+    1800
+  );
+}
+
+function settings(){
+
+  document.body.insertAdjacentHTML(
+    "beforeend",
+    `
+      <div
+        class="overlay"
+        id="set"
+      >
+
+        <div class="sheet settings">
+
+          <div class="modal-icon">
+            ${ico("gear")}
+          </div>
+
+          <h2>
+            Settings
+          </h2>
+
+          <button onclick="backup()">
+
+            ${ico("backup")}
+
+            <span>
+              Backup everything
+            </span>
+
+          </button>
+
+          <button onclick="pickRestore()">
+
+            ${ico("restore")}
+
+            <span>
+              Restore backup
+            </span>
+
+          </button>
+
+          <div class="settings-divider">
+          </div>
+
+          <button
+            class="danger"
+            onclick="resetSide('movie')"
+          >
+            Reset Movie Hundo
+          </button>
+
+          <button
+            class="danger"
+            onclick="resetSide('tv')"
+          >
+            Reset TV Fiddy
+          </button>
+
+          <button
+            class="danger"
+            onclick="resetAll()"
+          >
+            Reset everything
+          </button>
+
+          <button
+            class="primary-outline"
+            onclick="
+              document
+                .getElementById('set')
+                .remove()
+            "
+          >
+            Close
+          </button>
+
+        </div>
+
+      </div>
+    `
+  );
+}
+
+function restore(el){
+
+  let file=
+    el.files[0];
+
+  if(!file){
+    return;
+  }
+
+  let r=
+    new FileReader();
+
+  r.onload=()=>{
+
+    try{
+
+      pendingRestore=
+        JSON.parse(
+          r.result
+        );
+
+      confirmRestore(
+        file.name
+      );
+
+    }catch(e){
+
+      alert(
+        "Invalid backup"
+      );
+    }
+  };
+
+  r.readAsText(
+    file
+  );
+
+  el.value="";
+}
+
+function confirmRestore(name){
+
+  document.body.insertAdjacentHTML(
+    "beforeend",
+    `
+      <div
+        class="overlay"
+        id="cr"
+      >
+
+        <div class="sheet">
+
+          <h2>
+            Restore this backup?
+          </h2>
+
+          <p class="meta">
+            ${esc(name)}
+          </p>
+
+          <p class="meta">
+            This will overwrite your current data.
+            This can't be undone.
+          </p>
+
+          <div
+            style="
+              display:flex;
+              gap:10px;
+              margin-top:16px
+            "
+          >
+
+            <button
+              style="flex:1"
+              onclick="
+                cr.remove();
+                pendingRestore=null
+              "
+            >
+              Cancel
+            </button>
+
+            <button
+              class="primary"
+              style="flex:1"
+              onclick="applyRestore()"
+            >
+              Confirm
+            </button>
+
+          </div>
+
+        </div>
+
+      </div>
+    `
+  );
+}
+
+function applyRestore(){
+
+  document
+    .getElementById("cr")
+    ?.remove();
+
+  S={
+    ...DEFAULT(),
+    ...pendingRestore
+  };
+
+  S.custom=
+    S.custom||
+    {
+      movies:[],
+      tv:[]
+    };
+
+  pendingRestore=null;
+
+  save();
+
+  if(!TEST_MODE){
+    localStorage.setItem(
+      WELCOME_KEY,
+      "1"
+    );
+  }
+
+  document
+    .getElementById("set")
+    ?.remove();
+
+  view="home";
+
+  render();
+
+  restoredModal();
+}
+
+function restoredModal(){
+
+  document.body.insertAdjacentHTML(
+    "beforeend",
+    `
+      <div
+        class="overlay"
+        id="rm"
+      >
+
+        <div class="sheet">
+
+          <h2>
+            Restore complete
+          </h2>
+
+          <p class="meta">
+            Your backup has been loaded.
+            Everything's back in place.
+          </p>
+
+          <button
+            class="primary"
+            onclick="
+              document
+                .getElementById('rm')
+                .remove()
+            "
+          >
+            OK
+          </button>
+
+        </div>
+
+      </div>
+    `
+  );
+}
+
+function fresh(){
+
+  return {
+    phase:"setup",
+    a:{},
+    list:[],
+    round:0
+  };
+}
+
+function resetSide(k){
+
+  document.body.insertAdjacentHTML(
+    "beforeend",
+    `
+      <div
+        class="overlay"
+        id="rc"
+      >
+
+        <div class="sheet">
+
+          <h2>
+            Reset ${esc(cfg(k).name)}?
+          </h2>
+
+          <p class="meta">
+            This will erase all progress
+            and ratings for
+            ${esc(cfg(k).name)}.
+            If you haven't backed up,
+            this can't be undone.
+          </p>
+
+          <div
+            style="
+              display:flex;
+              gap:10px;
+              margin-top:16px
+            "
+          >
+
+            <button
+              style="flex:1"
+              onclick="rc.remove()"
+            >
+              Cancel
+            </button>
+
+            <button
+              class="danger"
+              style="flex:1"
+              onclick="doResetSide('${k}')"
+            >
+              Reset
+            </button>
+
+          </div>
+
+        </div>
+
+      </div>
+    `
+  );
+}
+
+function doResetSide(k){
+
+  document
+    .getElementById("rc")
+    ?.remove();
+
+  S[k]=fresh();
+
+  save();
+
+  document
+    .getElementById("set")
+    ?.remove();
+
+  render();
+
+  resetDoneModal(
+    cfg(k).name+" reset"
+  );
+}
+
+function resetAll(){
+
+  document.body.insertAdjacentHTML(
+    "beforeend",
+    `
+      <div
+        class="overlay"
+        id="ra"
+      >
+
+        <div class="sheet">
+
+          <h2>
+            Reset everything?
+          </h2>
+
+          <p class="meta">
+            This will erase all Movie Hundo
+            and TV Fiddy progress,
+            ratings,
+            and history.
+            If you haven't backed up,
+            this can't be undone.
+          </p>
+
+          <div
+            style="
+              display:flex;
+              gap:10px;
+              margin-top:16px
+            "
+          >
+
+            <button
+              style="flex:1"
+              onclick="ra.remove()"
+            >
+              Cancel
+            </button>
+
+            <button
+              class="danger"
+              style="flex:1"
+              onclick="doResetAll()"
+            >
+              Reset
+            </button>
+
+          </div>
+
+        </div>
+
+      </div>
+    `
+  );
+}
+
+function doResetAll(){
+
+  document
+    .getElementById("ra")
+    ?.remove();
+
+  let key=
+    S.tmdbKey;
+
+  S=
+    DEFAULT();
+
+  S.tmdbKey=
+    key;
+
+  save();
+
+  document
+    .getElementById("set")
+    ?.remove();
+
+  view="home";
+
+  render();
+
+  resetDoneModal(
+    "Everything reset"
+  );
+}
+
+function resetDoneModal(msg){
+
+  document.body.insertAdjacentHTML(
+    "beforeend",
+    `
+      <div
+        class="overlay"
+        id="rdm"
+      >
+
+        <div class="sheet">
+
+          <h2>
+            ${esc(msg)}
+          </h2>
+
+          <p class="meta">
+            Your data has been reset.
+          </p>
+
+          <button
+            class="primary"
+            onclick="rdm.remove()"
+          >
+            OK
+          </button>
+
+        </div>
+
+      </div>
+    `
+  );
+}
+
+function manual(k,id){
+
+  let s=
+    st(k);
+
+  if(!s.list.includes(id)){
+    s.list.push(id);
+  }
+
+  A(k,id).source="manual";
+
+  save();
+
+  render();
+
+  toast(
+    "Added to "+cfg(k).name
+  );
+}
+
+function addRemote(k,obj){
+
+  let bucket=
+    S.custom[cfg(k).key];
+
+  let id=
+    `tmdb-${cfg(k).tmdb}-${obj.id}`;
+
+  if(
+    !bucket.some(
+      x=>x.id===id
+    )
+  ){
+    bucket.push({
+      id,
+      title:obj.title||obj.name,
+      year:
+        (
+          obj.release_date||
+          obj.first_air_date||
+          ""
+        ).slice(0,4),
+      genre:
+        (obj.genre_names||[])
+          .join(" / ")||
+        "Other",
+      source:"tmdb",
+      tmdbId:obj.id
+    });
+  }
+
+  manual(
+    k,
+    id
+  );
+}
+
+async function onlineSearch(k,q,seq){
+
+  try{
+
+    let type=
+      cfg(k).tmdb;
+
+    let[
+      sr,
+      gr
+    ]=
+      await Promise.all([
+        fetch(
+          `${PROXY_URL}/search?type=${type}&query=${encodeURIComponent(q)}`
+        ),
+        fetch(
+          `${PROXY_URL}/genres?type=${type}`
+        )
+      ]);
+
+    if(!sr.ok){
+      throw new Error(
+        "search "+sr.status
+      );
+    }
+
+    let data=
+      await sr.json();
+
+    if(seq!==searchSeq){
+      return;
+    }
+
+    let gm={};
+
+    if(gr.ok){
+
+      (
+        await gr.json()
+      ).genres.forEach(
+        g=>gm[g.id]=g.name
+      );
+    }
+
+    let hits=
+      (data.results||[])
+        .slice(0,12)
+        .map(
+          x=>({
+            ...x,
+            genre_names:
+              (x.genre_ids||[])
+                .map(
+                  id=>gm[id]
+                )
+                .filter(Boolean)
+          })
+        );
+
+    if(seq!==searchSeq){
+      return;
+    }
+
+    let localIds=
+      new Set(
+        all(k)
+          .map(
+            x=>x.id
+          )
+      );
+
+    let html=
+      hits.map(x=>{
+
+        let id=
+          `tmdb-${type}-${x.id}`;
+
+        let exists=
+          localIds.has(id);
+
+        return `
+          <div class="row online">
+
+            <div class="num">
+              +
+            </div>
+
+            <div>
+
+              <div class="title">
+
+                ${esc(x.title||x.name)}
+
+                <span class="year">
+                  ${esc(
+                    (
+                      x.release_date||
+                      x.first_air_date||
+                      ""
+                    ).slice(0,4)
+                  )}
+                </span>
+
+              </div>
+
+              <div class="meta">
+
+                ${esc(
+                  x.genre_names.join(" / ")||
+                  "Online result"
+                )}
+
+              </div>
+
+              <button
+                class="ctrl on"
+                ${exists?"disabled":""}
+                onclick='addRemote("${k}",${JSON.stringify(x).replace(/'/g,"&#39;")})'
+              >
+                ${exists
+                  ?"Already added"
+                  :"Add to my "+cfg(k).name
+                }
+              </button>
+
+            </div>
+
+          </div>
+        `;
+      }).join("");
+
+    rows.insertAdjacentHTML(
+      "beforeend",
+      `
+        <div class="onlinehead">
+          Online results
+        </div>
+
+        ${html||
+          `
+            <div class="empty small">
+              No online matches.
+            </div>
+          `
+        }
+      `
+    );
+
+  }catch(e){
+
+    if(seq===searchSeq){
+
+      rows.insertAdjacentHTML(
+        "beforeend",
+        `
+          <div class="onlinehint error">
+            Online search couldn't connect right now.
+            Your list still works —
+            try again in a moment.
+          </div>
+        `
+      );
+    }
+  }
+}
+
+function search(k,q){
+
+  q=
+    q.trim();
+
+  let own=
+    st(k).phase==="setup"
+      ?all(k).slice(0,40)
+      :st(k).list
+        .map(
+          id=>all(k)
+            .find(
+              x=>x.id===id
+            )
+        )
+        .filter(Boolean);
+
+  if(!q){
+
+    rows.innerHTML=
+      own.map(
+        (x,i)=>row(k,x,i+1)
+      ).join("");
+
+    return;
+  }
+
+  let low=
+    q.toLowerCase();
+
+  let m=
+    own.filter(
+      x=>x.title
+        .toLowerCase()
+        .includes(low)
+    );
+
+  let catalogue=
+    all(k)
+      .filter(
+        x=>
+          x.title
+            .toLowerCase()
+            .includes(low)
+          &&
+          !own.some(
+            o=>o.id===x.id
+          )
+      )
+      .slice(0,8);
+
+  rows.innerHTML=
+    (
+      m.map(
+        (x,i)=>row(k,x,i+1)
+      ).join("")
+      ||
+      ""
+    )
+    +
+    catalogue.map(
+      x=>`
+        <div class="row">
+
+          <div class="num">
+            +
+          </div>
+
+          <div>
+
+            <div class="title">
+              ${esc(x.title)}
+            </div>
+
+            <div class="meta">
+              ${esc(x.genre)}
+            </div>
+
+            <button
+              class="ctrl on"
+              onclick="manual('${k}','${x.id}')"
+            >
+              Add to my ${cfg(k).name}
+            </button>
+
+          </div>
+
+        </div>
+      `
+    ).join("")
+    +
+    (
+      m.length||
+      catalogue.length
+        ?""
+        :`
+          <div class="empty small">
+            No local match —
+            checking online…
+          </div>
+        `
+    );
+
+  clearTimeout(
+    searchTimer
+  );
+
+  let seq=
+    ++searchSeq;
+
+  searchTimer=
+    setTimeout(
+      ()=>onlineSearch(k,q,seq),
+      350
+    );
+}
+
+function render(){
+
+  let app=
+    document.getElementById("app");
+
+  if(view==="welcome"){
+
+    app.innerHTML=`
+      <div class="screen-page welcome-page">
+
+        ${appHeader()}
+
+        <main class="welcome-main">
+
+          <section class="welcome-card">
+
+            <p class="welcome-lead">
+              Struggling to find your next
+              movie or TV series?
+              Don't worry —
+            </p>
+
+            ${logoMark()}
+
+            <p class="is-here">
+              is here.
+            </p>
+
+            <p class="welcome-tagline">
+              Find your next movie or show —
+              <br>
+              no more scrolling.
+            </p>
+
+            <button
+              class="primary-outline lets-go"
+              onclick="finishWelcome()"
+            >
+              Let's go.
+            </button>
+
+          </section>
+
+        </main>
+
+        ${appFooter()}
+
+      </div>
+    `;
+
+    return;
+  }
+
+  if(view==="home"){
+
+    app.innerHTML=`
+      <div class="screen-page home-page">
+
+        ${appHeader()}
+
+        <main class="home-main">
+
+          <p class="home-copy">
+            Choose Movies or TV,
+            then rate a curated set
+            of well-known titles across every genre.
+            The more detail you give,
+            the better your selection will be.
+          </p>
+
+          <div class="choices">
+
+            <button
+              class="choice"
+              onclick="go('movie')"
+            >
+
+              <span class="choice-icon">
+                ${ico("movie")}
+              </span>
+
+              <span class="choice-title">
+                MOVIE
+                <b>HUNDO</b>
+              </span>
+
+              <span class="choice-sub">
+                100 films picked
+                <br>
+                for you
+              </span>
+
+              <span class="choice-arrow">
+                →
+              </span>
+
+            </button>
+
+            <button
+              class="choice"
+              onclick="go('tv')"
+            >
+
+              <span class="choice-icon">
+                ${ico("tv")}
+              </span>
+
+              <span class="choice-title">
+                TV
+                <b>FIDDY</b>
+              </span>
+
+              <span class="choice-sub">
+                50 series picked
+                <br>
+                for you
+              </span>
+
+              <span class="choice-arrow">
+                →
+              </span>
+
+            </button>
+
+          </div>
+
+        </main>
+
+        ${appFooter()}
+
+      </div>
+    `;
+
+    return;
+  }
+
+  let k=view;
+
+  let c=
+    cfg(k);
+
+  let s=
+    st(k);
+
+  let back=`
+    <button
+      class="icon-btn"
+      aria-label="Back to home"
+      onclick="
+        view='home';
+        render()
+      "
+    >
+      ${ico("back")}
+    </button>
+  `;
+
+  if(tab==="history"){
+
+    let h=
+      hist(k);
+
+    app.innerHTML=`
+      <div class="screen-page content-page">
+
+        ${appHeader(back)}
+
+        <main class="shell">
+
+          <div class="section-heading">
+
+            <div>
+
+              <div class="eyebrow">
+                ${c.name}
+              </div>
+
+              <h1>
+                History
+              </h1>
+
+            </div>
+
+          </div>
+
+          <div class="tabs">
+
+            <button
+              class="tab"
+              onclick="
+                tab='list';
+                render()
+              "
+            >
+              My List
+            </button>
+
+            <button class="tab on">
+              History
+            </button>
+
+          </div>
+
+          <div>
+
+            ${h.length
+              ?h.map(
+                  x=>histrow(k,x)
+                ).join("")
+              :`
+                <div class="empty">
+                  Nothing watched yet.
+                </div>
+              `
+            }
+
+          </div>
+
+          ${appFooter()}
+
+        </main>
+
+      </div>
+    `;
+
+    return;
+  }
+
+  let arr=
+    s.phase==="setup"
+      ?all(k).slice(0,40)
+      :s.list
+        .map(
+          id=>all(k)
+            .find(
+              x=>x.id===id
+            )
+        )
+        .filter(Boolean);
+
+  let answered=
+    all(k)
+      .slice(0,40)
+      .filter(
+        x=>A(k,x.id).status
+      )
+      .length;
+
+  app.innerHTML=`
+    <div class="screen-page content-page">
+
+      ${appHeader(back)}
+
+      <main class="shell">
+
+        <div class="section-heading">
+
+          <div>
+
+            <div class="eyebrow">
+              ${c.name}
+            </div>
+
+            <h1>
+              ${s.phase==="setup"
+                ?"Taste setup"
+                :"My List"
+              }
+            </h1>
+
+          </div>
+
+          ${s.phase==="setup"
+            ?`
+              <div class="answer-count">
+                ${answered}
+                <span>/40</span>
+              </div>
+            `
+            :`
+              <div class="round-badge">
+                Round ${s.round}
+              </div>
+            `
+          }
+
+        </div>
+
+        <div class="tabs">
+
+          <button class="tab on">
+            My List
+          </button>
+
+          <button
+            class="tab"
+            onclick="
+              tab='history';
+              render()
+            "
+          >
+            History
+          </button>
+
+        </div>
+
+        ${s.phase==="setup"
+          ?`
+            <p class="sub setup-copy">
+              Rate these 40 well-known ${c.noun}.
+              The more detail you give,
+              the better your ${c.size} will be.
+            </p>
+
+            <div class="progress">
+              <i
+                style="
+                  width:${answered/40*100}%
+                "
+              ></i>
+            </div>
+          `
+          :`
+            <p class="sub">
+              Round ${s.round}
+              · rate,
+              comment
+              and refine as you go.
+            </p>
+          `
+        }
+
+        <label class="search-wrap">
+
+          ${ico("search")}
+
+          <input
+            class="search"
+            placeholder="${
+              s.phase==="setup"
+                ?"Search these 40 or find any title online…"
+                :"Search your list or add any title online…"
+            }"
+            oninput="search('${k}',this.value)"
+          >
+
+        </label>
+
+        <div id="rows">
+
+          ${arr.map(
+            (x,i)=>row(k,x,i+1)
+          ).join("")}
+
+        </div>
+
+        ${appFooter()}
+
+      </main>
+
+      <div class="bottom">
+
+        <button
+          class="secondary-action"
+          onclick="backup()"
+        >
+
+          ${ico("backup")}
+
+          <span>
+            Backup
+          </span>
+
+        </button>
+
+        <button
+          class="primary-action"
+          onclick="regen('${k}')"
+        >
+          ${
+            s.phase==="setup"
+              ?"Generate My "+c.size
+              :"Generate New "+c.size
+          }
+        </button>
+
+      </div>
+
+    </div>
+  `;
+}
