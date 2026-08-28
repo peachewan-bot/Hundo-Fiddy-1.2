@@ -1,12 +1,12 @@
 // Hundo & Fiddy service worker
 // IMPORTANT: bump CACHE_NAME on every deployed release.
-const CACHE_NAME = 'hf-v1.5-ui-b4';
+const CACHE_NAME = 'hf-v1.5-ui-b5';
 
 const APP_SHELL = [
   './',
   './index.html',
-  './style.css?v=hf-v1.5-ui-b4',
-  './app.js?v=hf-v1.5-ui-b4',
+  './style.css?v=hf-v1.5-ui-b5',
+  './app.js?v=hf-v1.5-ui-b5',
   './catalog.json',
   './manifest.webmanifest'
 ];
