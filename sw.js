@@ -1,6 +1,6 @@
 // Bump this version string on every future release. That single change makes
 // everyone's browser throw away the old cached files and fetch the new ones.
-const C='hf-v1.5';
+const C='hf-v1.5-ui-b1';
 const A=['./','./index.html','./style.css','./app.js','./catalog.json','./manifest.webmanifest'];
 
 self.addEventListener('install',e=>{
