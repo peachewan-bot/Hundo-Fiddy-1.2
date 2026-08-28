@@ -1,18 +1,16 @@
 // Hundo & Fiddy service worker
 // IMPORTANT: bump CACHE_NAME on every deployed release.
-const CACHE_NAME = 'hf-v1.5-ui-b3';
+const CACHE_NAME = 'hf-v1.5-ui-b4';
 
 const APP_SHELL = [
   './',
   './index.html',
-  './style.css',
-  './app.js',
+  './style.css?v=hf-v1.5-ui-b4',
+  './app.js?v=hf-v1.5-ui-b4',
   './catalog.json',
   './manifest.webmanifest'
 ];
 
-// Install immediately and force fresh copies of the current app shell
-// rather than allowing the browser HTTP cache to supply an older file.
 self.addEventListener('install', event => {
   self.skipWaiting();
 
@@ -33,7 +31,6 @@ self.addEventListener('install', event => {
   })());
 });
 
-// Remove previous Hundo & Fiddy caches and immediately control open pages.
 self.addEventListener('activate', event => {
   event.waitUntil((async () => {
     const keys = await caches.keys();
@@ -48,15 +45,12 @@ self.addEventListener('activate', event => {
   })());
 });
 
-// Same-origin GET requests are network-first.
-// The cache is an offline fallback, not the preferred source.
 self.addEventListener('fetch', event => {
   const request = event.request;
 
   if (request.method !== 'GET') return;
 
   const url = new URL(request.url);
-
   if (url.origin !== self.location.origin) return;
 
   event.respondWith((async () => {
@@ -72,10 +66,7 @@ self.addEventListener('fetch', event => {
       return response;
     } catch (error) {
       const cached = await cache.match(request);
-
-      if (cached) {
-        return cached;
-      }
+      if (cached) return cached;
 
       if (request.mode === 'navigate') {
         return (
