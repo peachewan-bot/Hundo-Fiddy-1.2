@@ -1,21 +1,69 @@
-// Bump this version string on every future release. That single change makes
-// everyone's browser throw away the old cached files and fetch the new ones.
-const C='hf-v1.5-ui-b1';
-const A=['./','./index.html','./style.css','./app.js','./catalog.json','./manifest.webmanifest'];
+// Hundo & Fiddy service worker
+// IMPORTANT: bump CACHE_NAME on every deployed release.
+const CACHE_NAME = 'hf-v1.5-ui-b2';
 
-self.addEventListener('install',e=>{
+const APP_SHELL = [
+  './',
+  './index.html',
+  './style.css',
+  './app.js',
+  './catalog.json',
+  './manifest.webmanifest'
+];
+
+self.addEventListener('install', event => {
   self.skipWaiting();
-  e.waitUntil(caches.open(C).then(c=>c.addAll(A)));
-});
 
-self.addEventListener('activate',e=>{
-  e.waitUntil(
-    caches.keys()
-      .then(keys=>Promise.all(keys.filter(k=>k!==C).map(k=>caches.delete(k))))
-      .then(()=>self.clients.claim())
+  event.waitUntil(
+    caches.open(CACHE_NAME)
+      .then(cache => cache.addAll(APP_SHELL))
   );
 });
 
-self.addEventListener('fetch',e=>{
-  e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request)));
+self.addEventListener('activate', event => {
+  event.waitUntil(
+    caches.keys()
+      .then(keys => Promise.all(
+        keys
+          .filter(key => key.startsWith('hf-') && key !== CACHE_NAME)
+          .map(key => caches.delete(key))
+      ))
+      .then(() => self.clients.claim())
+  );
+});
+
+self.addEventListener('fetch', event => {
+  const request = event.request;
+
+  if (request.method !== 'GET') return;
+
+  const url = new URL(request.url);
+  if (url.origin !== self.location.origin) return;
+
+  event.respondWith((async () => {
+    const cache = await caches.open(CACHE_NAME);
+
+    try {
+      const response = await fetch(request, { cache: 'no-store' });
+
+      if (response && response.ok) {
+        await cache.put(request, response.clone());
+      }
+
+      return response;
+    } catch (error) {
+      const cached = await cache.match(request);
+
+      if (cached) return cached;
+
+      if (request.mode === 'navigate') {
+        return (
+          await cache.match('./index.html') ||
+          await cache.match('./')
+        );
+      }
+
+      throw error;
+    }
+  })());
 });
