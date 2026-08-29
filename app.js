@@ -18,6 +18,7 @@ const save=()=>{if(!TEST_MODE)localStorage.setItem(DATA_KEY,JSON.stringify(S))};
 const cfg=k=>k==="movie"?{name:"Movie Hundo",size:100,key:"movies",noun:"films",tmdb:"movie"}:{name:"TV Fiddy",size:50,key:"tv",noun:"series",tmdb:"tv"};
 const st=k=>S[k], all=k=>[...(C[cfg(k).key]||[]),...(S.custom[cfg(k).key]||[])], A=(k,id)=>st(k).a[id]||(st(k).a[id]={status:"",rating:0,comment:"",source:""});
 const esc=s=>String(s||"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
+let afterProgrammaticPop=null;
 function pushNav(entry){navStack.push(entry);history.pushState({},"",location.href)}
 function applyPop(top){
   if(top.t==="modal")document.getElementById(top.id)?.remove();
@@ -25,9 +26,30 @@ function applyPop(top){
   else if(top.t==="tab"){tab="list";render()}
   else if(top.t==="screen"){view="home";tab="list";render()}
 }
-function popNav(n=1){for(let i=0;i<n&&navStack.length;i++){applyPop(navStack.pop());suppressCount++;history.back()}}
+function popNav(n=1,after=null){
+  let count=0;
+  for(let i=0;i<n&&navStack.length;i++){
+    applyPop(navStack.pop());
+    count++;
+  }
+  if(!count){
+    if(after)after();
+    return;
+  }
+  if(after)afterProgrammaticPop=after;
+  suppressCount++;
+  history.go(-count);
+}
 window.addEventListener("popstate",()=>{
-  if(suppressCount>0){suppressCount--;return}
+  if(suppressCount>0){
+    suppressCount--;
+    if(suppressCount===0&&afterProgrammaticPop){
+      let fn=afterProgrammaticPop;
+      afterProgrammaticPop=null;
+      setTimeout(fn,0);
+    }
+    return;
+  }
   if(!navStack.length)return;
   applyPop(navStack.pop());
 });
@@ -38,7 +60,7 @@ function logoMark(){
   return `
     <div class="logo-mark image-logo" aria-label="Hundo and Fiddy">
       <img
-        src="hundo-fiddy-logo.jpg?v=hf-v1.6"
+        src="hundo-fiddy-logo.jpg?v=hf-v1.6-bugfix1"
         alt="Hundo & Fiddy"
         class="welcome-logo-image"
       >
@@ -102,13 +124,13 @@ function toast(t){document.body.insertAdjacentHTML("beforeend",`<div class="toas
 function settings(){document.body.insertAdjacentHTML("beforeend",`<div class="overlay modal-overlay" id="set"><div class="sheet modal-sheet settings"><div class="modal-icon">${ico("gear")}</div><h2>Settings</h2><button onclick="backup()">${ico("backup")}<span>Backup everything</span></button><button onclick="pickRestore()">${ico("restore")}<span>Restore backup</span></button><div class="settings-divider"></div><button class="danger" onclick="resetSide('movie')">Reset Movie Hundo</button><button class="danger" onclick="resetSide('tv')">Reset TV Fiddy</button><button class="danger" onclick="resetAll()">Reset everything</button><div class="settings-divider"></div><button onclick="help()">${ico("help")}<span>Help &amp; FAQ</span></button><button class="primary-outline" onclick="popNav()">Close</button></div></div>`);pushNav({t:"modal",id:"set"})}
 function restore(el){let file=el.files[0];if(!file)return;let r=new FileReader();r.onload=()=>{try{pendingRestore=JSON.parse(r.result);confirmRestore(file.name)}catch(e){alert("Invalid backup")}};r.readAsText(file);el.value=""}
 function confirmRestore(name){document.body.insertAdjacentHTML("beforeend",`<div class="overlay modal-overlay" id="cr"><div class="sheet modal-sheet confirm-sheet"><h2>Restore this backup?</h2><p class="meta">${esc(name)}</p><p class="meta">This will overwrite your current data. This can't be undone.</p><div style="display:flex;gap:10px;margin-top:16px"><button style="flex:1" onclick="popNav();pendingRestore=null">Cancel</button><button class="primary" style="flex:1" onclick="applyRestore()">Confirm</button></div></div></div>`);pushNav({t:"modal",id:"cr"})}
-function applyRestore(){popNav(2);S={...DEFAULT(),...pendingRestore};S.custom=S.custom||{movies:[],tv:[]};pendingRestore=null;save();if(!TEST_MODE)localStorage.setItem(WELCOME_KEY,"1");view="home";render();restoredModal()}
+function applyRestore(){popNav(2,()=>{S={...DEFAULT(),...pendingRestore};S.custom=S.custom||{movies:[],tv:[]};pendingRestore=null;save();if(!TEST_MODE)localStorage.setItem(WELCOME_KEY,"1");view="home";render();restoredModal()})}
 function restoredModal(){document.body.insertAdjacentHTML("beforeend",`<div class="overlay modal-overlay" id="rm"><div class="sheet modal-sheet success-sheet"><h2>Restore complete</h2><p class="meta">Your backup has been loaded. Everything's back in place.</p><button class="primary" onclick="popNav()">OK</button></div></div>`);pushNav({t:"modal",id:"rm"})}
 function fresh(){return {phase:"setup",a:{},list:[],round:0}}
 function resetSide(k){document.body.insertAdjacentHTML("beforeend",`<div class="overlay modal-overlay" id="rc"><div class="sheet modal-sheet confirm-sheet"><h2>Reset ${esc(cfg(k).name)}?</h2><p class="meta">This will erase all progress and ratings for ${esc(cfg(k).name)}. If you haven't backed up, this can't be undone.</p><div style="display:flex;gap:10px;margin-top:16px"><button style="flex:1" onclick="popNav()">Cancel</button><button class="danger" style="flex:1" onclick="doResetSide('${k}')">Reset</button></div></div></div>`);pushNav({t:"modal",id:"rc"})}
-function doResetSide(k){popNav(2);S[k]=fresh();save();render();resetDoneModal(cfg(k).name+" reset")}
+function doResetSide(k){popNav(2,()=>{S[k]=fresh();save();render();resetDoneModal(cfg(k).name+" reset")})}
 function resetAll(){document.body.insertAdjacentHTML("beforeend",`<div class="overlay modal-overlay" id="ra"><div class="sheet modal-sheet confirm-sheet"><h2>Reset everything?</h2><p class="meta">This will erase all Movie Hundo and TV Fiddy progress, ratings, and history. If you haven't backed up, this can't be undone.</p><div style="display:flex;gap:10px;margin-top:16px"><button style="flex:1" onclick="popNav()">Cancel</button><button class="danger" style="flex:1" onclick="doResetAll()">Reset</button></div></div></div>`);pushNav({t:"modal",id:"ra"})}
-function doResetAll(){popNav(2);let key=S.tmdbKey;S=DEFAULT();S.tmdbKey=key;save();view="home";render();resetDoneModal("Everything reset")}
+function doResetAll(){popNav(2,()=>{let key=S.tmdbKey;S=DEFAULT();S.tmdbKey=key;save();view="home";render();resetDoneModal("Everything reset")})}
 function resetDoneModal(msg){document.body.insertAdjacentHTML("beforeend",`<div class="overlay modal-overlay" id="rdm"><div class="sheet modal-sheet success-sheet"><h2>${esc(msg)}</h2><p class="meta">Your data has been reset.</p><button class="primary" onclick="popNav()">OK</button></div></div>`);pushNav({t:"modal",id:"rdm"})}
 function manual(k,id){let s=st(k);if(!s.list.includes(id))s.list.push(id);A(k,id).source="manual";save();render();toast("Added to "+cfg(k).name)}
 function addRemote(k,obj){let bucket=S.custom[cfg(k).key],id=`tmdb-${cfg(k).tmdb}-${obj.id}`;if(!bucket.some(x=>x.id===id))bucket.push({id,title:obj.title||obj.name,year:(obj.release_date||obj.first_air_date||"").slice(0,4),genre:(obj.genre_names||[]).join(" / ")||"Other",source:"tmdb",tmdbId:obj.id});manual(k,id)}
