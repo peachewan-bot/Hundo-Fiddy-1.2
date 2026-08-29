@@ -1,12 +1,12 @@
 // Hundo & Fiddy service worker
 // IMPORTANT: bump CACHE_NAME on every deployed release.
-const CACHE_NAME = 'hf-v1.7';
+const CACHE_NAME = 'hf-v1.8';
 
 const APP_SHELL = [
   './',
   './index.html',
-  './style.css?v=hf-v1.7',
-  './app.js?v=hf-v1.7',
+  './style.css?v=hf-v1.8',
+  './app.js?v=hf-v1.8',
   './catalog.json',
   './manifest.webmanifest',
   './hundo-fiddy-logo.jpg?v=hf-v1.7',
@@ -14,6 +14,10 @@ const APP_SHELL = [
   './icon-512.png',
   './icon-maskable-512.png'
 ];
+
+const APP_SHELL_URLS = new Set(
+  APP_SHELL.map(path => new URL(path, self.location.href).href)
+);
 
 self.addEventListener('install', event => {
   self.skipWaiting();
@@ -60,6 +64,34 @@ self.addEventListener('fetch', event => {
   event.respondWith((async () => {
     const cache = await caches.open(CACHE_NAME);
 
+    // V1.8 offline fix:
+    // Navigation is cache-first so an installed PWA can cold-launch
+    // immediately with no network connection.
+    if (request.mode === 'navigate') {
+      const cachedPage =
+        await cache.match('./index.html') ||
+        await cache.match('./');
+
+      if (cachedPage) return cachedPage;
+
+      return fetch(request, { cache: 'no-store' });
+    }
+
+    // Versioned app-shell assets are also cache-first.
+    // A new release gets a new cache/versioned URL, so this does not
+    // reintroduce the old mixed/stale-assets deployment problem.
+    if (APP_SHELL_URLS.has(url.href)) {
+      const cachedAsset = await cache.match(request);
+      if (cachedAsset) return cachedAsset;
+
+      const response = await fetch(request, { cache: 'no-store' });
+      if (response && response.ok) {
+        await cache.put(request, response.clone());
+      }
+      return response;
+    }
+
+    // Other same-origin GETs remain network-first with cached fallback.
     try {
       const response = await fetch(request, { cache: 'no-store' });
 
@@ -71,14 +103,6 @@ self.addEventListener('fetch', event => {
     } catch (error) {
       const cached = await cache.match(request);
       if (cached) return cached;
-
-      if (request.mode === 'navigate') {
-        return (
-          await cache.match('./index.html') ||
-          await cache.match('./')
-        );
-      }
-
       throw error;
     }
   })());

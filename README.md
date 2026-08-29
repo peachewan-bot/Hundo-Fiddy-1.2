@@ -1,82 +1,52 @@
-# Hundo & Fiddy — V1.7
+# Hundo & Fiddy — V1.8
 
-Stable production release of the unified Movie Hundo + TV Fiddy PWA.
+Candidate stable end-of-Phase-1 release of the unified Movie Hundo + TV Fiddy PWA.
 
-## Included
+## V1.8 change
 
-- Shared near-black / electric-blue Hundo & Fiddy visual system
-- First-run Welcome screen
-- Movie Hundo and TV Fiddy home choices
-- 40-title Taste Setup on both sides
-- Seen / Not seen / Not interested
-- 1–5 star ratings
-- Persistent comments
-- Movie Hundo Top 100
-- TV Fiddy Top 50
-- History
-- Local catalogue search
-- Online title search through the Hundo & Fiddy TMDB proxy
-- Add-title support for local and online results
-- Carry-forward chooser before regeneration
-- Unified Backup / Restore
-- Per-side reset and Reset Everything
-- Help & FAQ
-- Browser/back-button navigation handling
-- Fixed Reset/Restore success-flow navigation
-- Proper Android/PWA install metadata and icons
-- Test mode via `?test=1`
-- Versioned service-worker/app-shell update strategy
+V1.8 fixes a confirmed real-device Android PWA defect:
 
-## Data model
+When the installed app was cold-launched with Flight mode enabled and Wi-Fi disabled, the app could remain stuck on its splash screen instead of loading offline.
 
-The stable V1.x user state remains stored under:
+The cause was the service worker's network-first navigation strategy. V1.8 changes navigation and versioned app-shell assets to cache-first, allowing an installed PWA to cold-launch immediately from its precached shell.
+
+Update safety remains preserved:
+
+- cache identifier bumped to `hf-v1.8`
+- versioned `style.css`, `app.js`, and `sw.js` URLs
+- install fetches fresh shell assets using `cache: 'reload'`
+- activation deletes previous `hf-*` caches
+- `skipWaiting()` and `clients.claim()` retained
+- non-shell same-origin requests remain network-first with cached fallback
+
+## Data compatibility
+
+No V1 user-data/storage changes were made.
+
+Main state key remains:
 
 `hf-v1.2`
 
-Legacy fallback key:
+Legacy fallback remains:
 
 `hf-v1`
 
-First-run Welcome flag:
+Welcome flag remains:
 
 `hf-welcome-v1`
 
-Post-onboarding tip dismissal flag:
+Post-onboarding tip dismissal remains:
 
 `hf-post-onboarding-tip-dismissed-v1`
 
-These are data/schema keys and intentionally do not match the public app version.
+Backup/Restore format is unchanged.
 
-Backup exports the complete application state: Movie Hundo + TV Fiddy together.
+## Regression requirement
 
-## Online search
+V1.8 should be treated as a release candidate until:
 
-Internet-wide title search is implemented through the backend proxy:
+1. the complete Playwright regression suite is rerun against the deployed V1.8 site;
+2. the real Samsung installed-PWA offline cold-launch test is repeated with Flight mode enabled and Wi-Fi disabled;
+3. normal online launch/update behavior is reconfirmed.
 
-`https://hundo-fiddy-proxy.peachewan.workers.dev`
-
-No TMDB secret/API key is exposed in the client UI.
-
-## PWA / install
-
-V1.7 includes:
-
-- 192x192 app icon
-- 512x512 app icon
-- 512x512 maskable Android icon
-- standalone display mode
-- explicit manifest id/scope/start URL
-
-## Release / cache rule
-
-V1.7 uses the internal release identifier:
-
-`hf-v1.7`
-
-Any future deployed application update must bump the service-worker/cache identifier and the versioned asset references in `index.html`.
-
-## Phase boundary
-
-V1.7 is the stable end-of-Phase-1 release.
-
-The next major public release is intended to be V2.0. Phase 2 should begin from a separate development/beta environment, preserving V1.7 production compatibility. Claude Code's first Phase 2 task should be a read-only repository audit before modifications are made.
+Only after those pass should V1.8 receive the stable production tag.
