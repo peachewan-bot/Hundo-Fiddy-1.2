@@ -38,7 +38,7 @@ function logoMark(){
   return `
     <div class="logo-mark image-logo" aria-label="Hundo and Fiddy">
       <img
-        src="hundo-fiddy-logo.jpg?v=hf-v1.5-ui-b10"
+        src="hundo-fiddy-logo.jpg?v=hf-v1.6"
         alt="Hundo & Fiddy"
         class="welcome-logo-image"
       >
