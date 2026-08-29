@@ -1,6 +1,6 @@
-# Hundo & Fiddy — V1.6
+# Hundo & Fiddy — V1.7
 
-Stable Phase 1 release of the unified Movie Hundo + TV Fiddy PWA.
+Stable production release of the unified Movie Hundo + TV Fiddy PWA.
 
 ## Included
 
@@ -22,6 +22,8 @@ Stable Phase 1 release of the unified Movie Hundo + TV Fiddy PWA.
 - Per-side reset and Reset Everything
 - Help & FAQ
 - Browser/back-button navigation handling
+- Fixed Reset/Restore success-flow navigation
+- Proper Android/PWA install metadata and icons
 - Test mode via `?test=1`
 - Versioned service-worker/app-shell update strategy
 
@@ -43,38 +45,38 @@ Post-onboarding tip dismissal flag:
 
 `hf-post-onboarding-tip-dismissed-v1`
 
+These are data/schema keys and intentionally do not match the public app version.
+
 Backup exports the complete application state: Movie Hundo + TV Fiddy together.
 
 ## Online search
 
-Internet-wide title search is already implemented through the backend proxy:
+Internet-wide title search is implemented through the backend proxy:
 
 `https://hundo-fiddy-proxy.peachewan.workers.dev`
 
 No TMDB secret/API key is exposed in the client UI.
 
-## V1.6 Bugfix 2
+## PWA / install
 
-Internal patch identifier: `hf-v1.6-bugfix2`.
+V1.7 includes:
 
-Fixes Android/PWA installation presentation by adding explicit 192px, 512px and maskable app icons, manifest `id`/`scope`, and browser icon metadata. The app remains a standalone PWA and launches at the app root.
-
-## V1.6 Bugfix 1
-
-Internal patch identifier: `hf-v1.6-bugfix2`.
-
-Fixes Reset/Restore success-flow navigation so multi-level browser-history cleanup completes before the success modal is created, preventing the final OK action from occasionally leaving/closing the site or installed app.
+- 192x192 app icon
+- 512x512 app icon
+- 512x512 maskable Android icon
+- standalone display mode
+- explicit manifest id/scope/start URL
 
 ## Release / cache rule
 
-V1.6 uses the release identifier:
+V1.7 uses the internal release identifier:
 
-`hf-v1.6-bugfix2`
+`hf-v1.7`
 
 Any future deployed application update must bump the service-worker/cache identifier and the versioned asset references in `index.html`.
 
 ## Phase boundary
 
-V1.6 is the stable end-of-Phase-1 release.
+V1.7 is the stable end-of-Phase-1 release.
 
-The next major public release is intended to be V2.0. Phase 2 should begin from a separate development/beta environment, preserving V1.6 production compatibility. Claude Code's first Phase 2 task should be a read-only repository audit before modifications are made.
+The next major public release is intended to be V2.0. Phase 2 should begin from a separate development/beta environment, preserving V1.7 production compatibility. Claude Code's first Phase 2 task should be a read-only repository audit before modifications are made.
