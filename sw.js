@@ -64,7 +64,7 @@ self.addEventListener('fetch', event => {
   event.respondWith((async () => {
     const cache = await caches.open(CACHE_NAME);
 
-    // V1.8 offline fix:
+    // Offline cold-launch behavior retained in V1.9:
     // Navigation is cache-first so an installed PWA can cold-launch
     // immediately with no network connection.
     if (request.mode === 'navigate') {

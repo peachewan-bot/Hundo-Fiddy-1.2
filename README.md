@@ -1,18 +1,22 @@
-# Hundo & Fiddy — V1.8
+# Hundo & Fiddy — V1.9
 
-Candidate stable end-of-Phase-1 release of the unified Movie Hundo + TV Fiddy PWA.
+Stable end-of-Stage-1 release of the unified Movie Hundo + TV Fiddy PWA.
 
-## V1.8 change
+## V1.9 release
 
-V1.8 fixes a confirmed real-device Android PWA defect:
+V1.9 is the final Stage 1 release baseline.
 
-When the installed app was cold-launched with Flight mode enabled and Wi-Fi disabled, the app could remain stuck on its splash screen instead of loading offline.
+It retains the installed-PWA offline cold-launch fix introduced during Stage 1 and makes the deployed release/cache-busting identifiers consistently use `hf-v1.9`.
 
-The cause was the service worker's network-first navigation strategy. V1.8 changes navigation and versioned app-shell assets to cache-first, allowing an installed PWA to cold-launch immediately from its precached shell.
+No recommendation, user-data, storage-schema, Backup/Restore, catalogue, navigation, or visual-design changes are part of this V1.9 release cleanup.
+
+### Offline/PWA behavior
+
+Navigation and versioned app-shell assets use a cache-first strategy so an installed PWA can cold-launch from its precached shell with no network connection.
 
 Update safety remains preserved:
 
-- cache identifier bumped to `hf-v1.8`
+- cache identifier: `hf-v1.9`
 - versioned `style.css`, `app.js`, and `sw.js` URLs
 - install fetches fresh shell assets using `cache: 'reload'`
 - activation deletes previous `hf-*` caches
@@ -39,14 +43,19 @@ Post-onboarding tip dismissal remains:
 
 `hf-post-onboarding-tip-dismissed-v1`
 
+These storage/UI keys are intentionally not renamed to match the V1.9 application release number.
+
 Backup/Restore format is unchanged.
 
-## Regression requirement
+## Stage 1 acceptance
 
-V1.8 should be treated as a release candidate until:
+Final Stage 1 verification completed against the V1.9 production baseline:
 
-1. the complete Playwright regression suite is rerun against the deployed V1.8 site;
-2. the real Samsung installed-PWA offline cold-launch test is repeated with Flight mode enabled and Wi-Fi disabled;
-3. normal online launch/update behavior is reconfirmed.
+- Playwright regression: **306/306 passed**
+- failed: **0**
+- flaky: **0**
+- skipped: **0**
+- Samsung installed-PWA offline cold-launch: **PASS**
+- production URL: `https://whatdoyouwanttoeat-youpick.com`
 
-Only after those pass should V1.8 receive the stable production tag.
+Stage 1 is closed. V1.9 is the protected production baseline for future Stage 2 work.
